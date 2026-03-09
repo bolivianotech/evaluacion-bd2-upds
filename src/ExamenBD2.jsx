@@ -20,6 +20,7 @@ export default function ExamenBD2() {
   const [tiempoInicio, setTiempoInicio] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [errorCarga, setErrorCarga] = useState('');
+  const [dragSelected, setDragSelected] = useState(null);
 
   const cargarPreguntas = useCallback(async () => {
     setCargando(true);
@@ -110,8 +111,19 @@ export default function ExamenBD2() {
     setPantalla('examen');
   };
 
+  // Reset drag selection when navigating between questions
+  useEffect(() => {
+    setDragSelected(null);
+  }, [indexPregunta]);
+
   const responder = (valor) => {
-    setRespuestas({ ...respuestas, [indexPregunta]: valor });
+    if (valor === undefined) {
+      const copia = { ...respuestas };
+      delete copia[indexPregunta];
+      setRespuestas(copia);
+    } else {
+      setRespuestas({ ...respuestas, [indexPregunta]: valor });
+    }
   };
 
   const siguiente = () => {
@@ -224,7 +236,11 @@ export default function ExamenBD2() {
         } else if (p.tipo === 'verdadero_falso') {
           textoResp = `Respuesta: ${resp === true ? 'Verdadero' : 'Falso'}`;
         } else if (p.tipo === 'drag_drop') {
-          textoResp = `Seleccionado: ${resp}`;
+          if (typeof resp === 'object') {
+            textoResp = Object.entries(resp).map(([k, v]) => `${k} → ${v}`).join('\n');
+          } else {
+            textoResp = `Seleccionado: ${resp}`;
+          }
         }
       }
 
@@ -427,54 +443,98 @@ export default function ExamenBD2() {
               </div>
             )}
 
-            {p.tipo === 'drag_drop' && p.drag_drop_items && (
-              <div>
-                <p style={{ fontSize: '13px', color: '#666', marginBottom: '15px' }}>Haz clic para emparejar:</p>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
-                  <div>
-                    <p style={{ fontSize: '11px', color: '#999', fontWeight: 'bold', marginBottom: '8px' }}>CONCEPTO</p>
-                    {p.drag_drop_items.map((item, i) => (
-                      <div
-                        key={i}
-                        onClick={() => responder(item.item_izquierdo)}
-                        style={{
-                          padding: '8px',
-                          marginBottom: '8px',
-                          border: respuestas[indexPregunta] === item.item_izquierdo ? '2px solid #0066cc' : '1px solid #ddd',
-                          borderRadius: '4px',
-                          backgroundColor: respuestas[indexPregunta] === item.item_izquierdo ? '#f0f7ff' : '#fafafa',
-                          cursor: 'pointer',
-                          fontSize: '12px',
-                          fontWeight: 'bold',
-                          color: '#333'
-                        }}
-                      >
-                        {item.item_izquierdo}
-                      </div>
-                    ))}
+            {p.tipo === 'drag_drop' && p.drag_drop_items && (() => {
+              const pares = respuestas[indexPregunta] || {};
+              return (
+                <div>
+                  <p style={{ fontSize: '13px', color: '#666', marginBottom: '4px' }}>
+                    1. Haz clic en un <strong>CONCEPTO</strong> (izquierda) para seleccionarlo.
+                  </p>
+                  <p style={{ fontSize: '13px', color: '#666', marginBottom: '15px' }}>
+                    2. Luego haz clic en su <strong>DEFINICIÓN</strong> (derecha) para emparejarlo.
+                  </p>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                    <div>
+                      <p style={{ fontSize: '11px', color: '#999', fontWeight: 'bold', marginBottom: '8px' }}>CONCEPTO</p>
+                      {p.drag_drop_items.map((item, i) => {
+                        const emparejado = pares[item.item_izquierdo] !== undefined;
+                        const seleccionado = dragSelected === item.item_izquierdo;
+                        return (
+                          <div
+                            key={i}
+                            onClick={() => {
+                              if (emparejado) {
+                                const nuevos = { ...pares };
+                                delete nuevos[item.item_izquierdo];
+                                responder(Object.keys(nuevos).length > 0 ? nuevos : undefined);
+                                setDragSelected(null);
+                              } else {
+                                setDragSelected(seleccionado ? null : item.item_izquierdo);
+                              }
+                            }}
+                            style={{
+                              padding: '8px 10px',
+                              marginBottom: '8px',
+                              border: seleccionado ? '2px solid #0066cc' : emparejado ? '2px solid #22c55e' : '1px solid #ddd',
+                              borderRadius: '4px',
+                              backgroundColor: seleccionado ? '#dbeafe' : emparejado ? '#f0fdf4' : '#fafafa',
+                              cursor: 'pointer',
+                              fontSize: '12px',
+                              fontWeight: 'bold',
+                              color: seleccionado ? '#0066cc' : emparejado ? '#166534' : '#333',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px'
+                            }}
+                          >
+                            {emparejado ? '✓' : seleccionado ? '▶' : '○'} {item.item_izquierdo}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div>
+                      <p style={{ fontSize: '11px', color: '#999', fontWeight: 'bold', marginBottom: '8px' }}>DEFINICIÓN</p>
+                      {p.drag_drop_items.map((item, i) => {
+                        const usadaPor = Object.entries(pares).find(([, v]) => v === item.item_derecho);
+                        const usada = !!usadaPor;
+                        const disponible = !!dragSelected && !usada;
+                        return (
+                          <div
+                            key={i}
+                            onClick={() => {
+                              if (!dragSelected || usada) return;
+                              const nuevos = { ...pares, [dragSelected]: item.item_derecho };
+                              responder(nuevos);
+                              setDragSelected(null);
+                            }}
+                            style={{
+                              padding: '8px 10px',
+                              marginBottom: '8px',
+                              border: usada ? '2px solid #22c55e' : disponible ? '1px dashed #0066cc' : '1px solid #ddd',
+                              borderRadius: '4px',
+                              backgroundColor: usada ? '#f0fdf4' : disponible ? '#f0f7ff' : '#f5f5f5',
+                              cursor: disponible ? 'pointer' : 'default',
+                              fontSize: '12px',
+                              color: usada ? '#166534' : '#555'
+                            }}
+                          >
+                            {usada ? '✓ ' : ''}{item.item_derecho}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                  <div>
-                    <p style={{ fontSize: '11px', color: '#999', fontWeight: 'bold', marginBottom: '8px' }}>DEFINICIÓN</p>
-                    {p.drag_drop_items.map((item, i) => (
-                      <div
-                        key={i}
-                        style={{
-                          padding: '8px',
-                          marginBottom: '8px',
-                          border: '1px solid #ddd',
-                          borderRadius: '4px',
-                          backgroundColor: '#f5f5f5',
-                          fontSize: '12px',
-                          color: '#333'
-                        }}
-                      >
-                        {item.item_derecho}
-                      </div>
-                    ))}
-                  </div>
+                  {Object.keys(pares).length > 0 && (
+                    <button
+                      onClick={() => { responder(undefined); setDragSelected(null); }}
+                      style={{ marginTop: '10px', padding: '5px 10px', fontSize: '11px', border: '1px solid #ddd', borderRadius: '4px', backgroundColor: 'white', cursor: 'pointer', color: '#888' }}
+                    >
+                      ✕ Borrar emparejamientos
+                    </button>
+                  )}
                 </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
