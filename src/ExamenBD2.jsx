@@ -130,18 +130,117 @@ export default function ExamenBD2() {
 
   const descargarPDF = () => {
     const doc = new jsPDF();
-    doc.setFontSize(16);
-    doc.text('EVALUACIÓN - BASES DE DATOS II', 105, 15, { align: 'center' });
-    doc.setFontSize(11);
-    doc.text(`Estudiante: ${nombre}`, 20, 35);
-    doc.text(`Email: ${email}`, 20, 45);
-    doc.text(`Carrera: ${carrera}`, 20, 55);
-    doc.text(`Fecha: ${new Date().toLocaleDateString('es-ES')}`, 20, 65);
     const total = preguntas.length || 20;
     const porcentaje = ((puntos / total) * 100).toFixed(1);
     const estado = puntos >= 14 ? 'APROBADO' : 'REPROBADO';
-    doc.text(`Calificación: ${puntos}/${total} (${porcentaje}%) - ${estado}`, 20, 80);
-    doc.save(`Examen_${nombre}.pdf`);
+    const pageW = doc.internal.pageSize.getWidth();
+    const margin = 20;
+    const maxW = pageW - margin * 2;
+
+    // Encabezado
+    doc.setFillColor(0, 102, 204);
+    doc.rect(0, 0, pageW, 28, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(14);
+    doc.setFont(undefined, 'bold');
+    doc.text('EVALUACIÓN - BASES DE DATOS II', pageW / 2, 12, { align: 'center' });
+    doc.setFontSize(10);
+    doc.setFont(undefined, 'normal');
+    doc.text('Universidad Privada Domingo Savio (UPDS)', pageW / 2, 22, { align: 'center' });
+
+    // Datos del estudiante
+    doc.setTextColor(50, 50, 50);
+    doc.setFontSize(10);
+    let y = 38;
+    doc.setFont(undefined, 'bold');
+    doc.text('Estudiante:', margin, y);
+    doc.setFont(undefined, 'normal');
+    doc.text(nombre, margin + 28, y);
+
+    doc.setFont(undefined, 'bold');
+    doc.text('Email:', margin + 95, y);
+    doc.setFont(undefined, 'normal');
+    doc.text(email, margin + 110, y);
+
+    y += 8;
+    doc.setFont(undefined, 'bold');
+    doc.text('Carrera:', margin, y);
+    doc.setFont(undefined, 'normal');
+    doc.text(carrera || 'Sin especificar', margin + 22, y);
+
+    doc.setFont(undefined, 'bold');
+    doc.text('Fecha:', margin + 95, y);
+    doc.setFont(undefined, 'normal');
+    doc.text(new Date().toLocaleDateString('es-ES'), margin + 110, y);
+
+    // Resultado
+    y += 10;
+    const colorRes = puntos >= 14 ? [34, 197, 94] : [220, 53, 69];
+    doc.setFillColor(...colorRes);
+    doc.rect(margin, y, maxW, 12, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFont(undefined, 'bold');
+    doc.setFontSize(11);
+    doc.text(`Calificación: ${puntos}/${total} (${porcentaje}%) - ${estado}`, pageW / 2, y + 8, { align: 'center' });
+
+    // Detalle de preguntas
+    y += 20;
+    doc.setTextColor(50, 50, 50);
+    doc.setFontSize(11);
+    doc.setFont(undefined, 'bold');
+    doc.text('DETALLE DE RESPUESTAS', margin, y);
+    y += 2;
+    doc.setDrawColor(0, 102, 204);
+    doc.line(margin, y, pageW - margin, y);
+    y += 6;
+
+    preguntas.forEach((p, i) => {
+      // Nueva página si no hay espacio
+      if (y > 260) {
+        doc.addPage();
+        y = 20;
+      }
+
+      doc.setFontSize(9);
+      doc.setFont(undefined, 'bold');
+      doc.setTextColor(0, 102, 204);
+      doc.text(`Pregunta ${i + 1} (${p.tipo === 'multiple' ? 'Opción múltiple' : p.tipo === 'verdadero_falso' ? 'Verdadero/Falso' : 'Emparejar'})`, margin, y);
+      y += 5;
+
+      // Enunciado
+      doc.setFont(undefined, 'normal');
+      doc.setTextColor(50, 50, 50);
+      const enuncLines = doc.splitTextToSize(p.enunciado, maxW);
+      doc.text(enuncLines, margin, y);
+      y += enuncLines.length * 4.5;
+
+      // Respuesta del estudiante
+      const resp = respuestas[i];
+      let textoResp = 'Sin responder';
+
+      if (resp !== undefined) {
+        if (p.tipo === 'multiple' && p.opciones && p.opciones[resp]) {
+          textoResp = `Respuesta: ${p.opciones[resp].texto_opcion}`;
+        } else if (p.tipo === 'verdadero_falso') {
+          textoResp = `Respuesta: ${resp === true ? 'Verdadero' : 'Falso'}`;
+        } else if (p.tipo === 'drag_drop') {
+          textoResp = `Seleccionado: ${resp}`;
+        }
+      }
+
+      doc.setFont(undefined, 'italic');
+      doc.setTextColor(resp !== undefined ? 34 : 180, resp !== undefined ? 120 : 50, resp !== undefined ? 20 : 50);
+      const respLines = doc.splitTextToSize(textoResp, maxW - 5);
+      doc.text(respLines, margin + 3, y);
+      y += respLines.length * 4.5 + 4;
+
+      // Separador
+      doc.setDrawColor(220, 220, 220);
+      doc.line(margin, y, pageW - margin, y);
+      y += 5;
+    });
+
+    doc.save(`Examen_BD2_${nombre.replace(/\s+/g, '_')}.pdf`);
   };
 
   const mins = Math.floor(tiempo / 60);
