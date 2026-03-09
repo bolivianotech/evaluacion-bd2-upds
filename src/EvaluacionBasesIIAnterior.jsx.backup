@@ -1,0 +1,732 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { ChevronRight, Check, X, Download, RefreshCw, LogOut, Clock, BookOpen, Target, Award } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+
+const EvaluacionBasesII = () => {
+  // ════════════════════════════════════════════════════════════════
+  // ESTADO GLOBAL
+  // ════════════════════════════════════════════════════════════════
+  const [pantalla, setPantalla] = useState('inicio'); // inicio, datos, evaluacion, resultados
+  const [estudiante, setEstudiante] = useState({
+    nombre: '',
+    email: '',
+    carrera: ''
+  });
+  const [respuestas, setRespuestas] = useState({});
+  const [evaluacionData, setEvaluacionData] = useState(null);
+  const [tiempoInicio, setTiempoInicio] = useState(null);
+  const [preguntas, setPreguntas] = useState([]);
+  const [preguntaActual, setPreguntaActual] = useState(0);
+  const [resultados, setResultados] = useState(null);
+  const [cargando, setCargando] = useState(true);
+
+  // ════════════════════════════════════════════════════════════════
+  // DATOS MOCK (En producción, vienen de Supabase)
+  // ════════════════════════════════════════════════════════════════
+  const preguntasMock = [
+    {
+      id: 1,
+      numero: 1,
+      tipo: 'multiple',
+      tema: 'Vistas',
+      dificultad: 'media',
+      enunciado: '¿Cuál es la principal diferencia entre una VISTA y una VISTA MATERIALIZADA?',
+      opciones: [
+        { texto: 'La vista lógica no almacena datos, la materializada sí almacena datos en disco', correcta: true },
+        { texto: 'Las vistas lógicas son más rápidas que las materializadas', correcta: false },
+        { texto: 'Ambas almacenan datos de forma idéntica', correcta: false },
+        { texto: 'Las vistas materializadas no necesitan REFRESH', correcta: false }
+      ],
+      puntos: 1.00
+    },
+    {
+      id: 2,
+      numero: 2,
+      tipo: 'multiple',
+      tema: 'Vistas',
+      dificultad: 'facil',
+      enunciado: '¿Para qué se utiliza una VISTA en términos de SEGURIDAD?',
+      opciones: [
+        { texto: 'Para acelerar las búsquedas sin crear índices', correcta: false },
+        { texto: 'Para ocultar columnas sensibles como teléfono, dirección, email', correcta: true },
+        { texto: 'Para aumentar el tamaño de almacenamiento', correcta: false },
+        { texto: 'Para crear backups automáticos', correcta: false }
+      ],
+      puntos: 1.00
+    },
+    {
+      id: 3,
+      numero: 3,
+      tipo: 'multiple',
+      tema: 'Índices',
+      dificultad: 'media',
+      enunciado: 'En PostgreSQL, cuando ejecutas EXPLAIN ANALYZE y ves "Seq Scan", ¿qué significa?',
+      opciones: [
+        { texto: 'PostgreSQL lee TODAS las filas de la tabla una por una', correcta: true },
+        { texto: 'PostgreSQL está usando un índice B-Tree', correcta: false },
+        { texto: 'PostgreSQL está usando join de secuencias', correcta: false },
+        { texto: 'No hay diferencia con "Index Scan"', correcta: false }
+      ],
+      puntos: 1.00
+    },
+    {
+      id: 4,
+      numero: 4,
+      tipo: 'verdadero_falso',
+      tema: 'Índices',
+      dificultad: 'facil',
+      enunciado: 'Los ÍNDICES aceleran las búsquedas (SELECT) pero ralentizan las inserciones (INSERT).',
+      respuesta_correcta: true,
+      puntos: 1.00,
+      explicacion: 'VERDADERO: Los índices mejoran lecturas pero requieren actualización en inserciones/actualizaciones.'
+    },
+    {
+      id: 5,
+      numero: 5,
+      tipo: 'verdadero_falso',
+      tema: 'Funciones',
+      dificultad: 'media',
+      enunciado: 'Una FUNCIÓN en PostgreSQL puede modificar datos en las tablas.',
+      respuesta_correcta: true,
+      puntos: 1.00,
+      explicacion: 'VERDADERO: Las funciones pueden hacer INSERT, UPDATE, DELETE además de SELECT.'
+    },
+    {
+      id: 6,
+      numero: 6,
+      tipo: 'verdadero_falso',
+      tema: 'Seguridad',
+      dificultad: 'facil',
+      enunciado: 'GRANT SELECT ON tabla TO rol permite que el rol inserte datos en la tabla.',
+      respuesta_correcta: false,
+      puntos: 1.00,
+      explicacion: 'FALSO: GRANT SELECT solo permite lectura. Para INSERT se necesita GRANT INSERT.'
+    },
+    {
+      id: 7,
+      numero: 7,
+      tipo: 'drag_drop',
+      tema: 'Vistas',
+      dificultad: 'media',
+      enunciado: 'Empareja cada tipo de VISTA con su característica principal:',
+      items: [
+        { izq: 'Vista Lógica', der: 'No almacena datos, se recalcula siempre', correcta: 'Vista Lógica' },
+        { izq: 'Vista Materializada', der: 'Se almacena en disco, requiere REFRESH', correcta: 'Vista Materializada' },
+        { izq: 'Vista con RLS', der: 'Controla acceso a nivel de fila', correcta: 'Vista con RLS' }
+      ],
+      puntos: 2.00
+    },
+    {
+      id: 8,
+      numero: 8,
+      tipo: 'drag_drop',
+      tema: 'Triggers',
+      dificultad: 'media',
+      enunciado: 'Empareja cada variable mágica de PL/pgSQL con su significado:',
+      items: [
+        { izq: 'NEW', der: 'Registro NUEVO (INSERT/UPDATE)', correcta: 'NEW' },
+        { izq: 'OLD', der: 'Registro ANTES del cambio (UPDATE/DELETE)', correcta: 'OLD' },
+        { izq: 'TG_OP', der: 'Tipo de operación: INSERT, UPDATE o DELETE', correcta: 'TG_OP' }
+      ],
+      puntos: 2.00
+    }
+  ];
+
+  // ════════════════════════════════════════════════════════════════
+  // EFECTOS
+  // ════════════════════════════════════════════════════════════════
+  useEffect(() => {
+    setPreguntas(preguntasMock);
+    setCargando(false);
+  }, []);
+
+  // ════════════════════════════════════════════════════════════════
+  // FUNCIONES CORE
+  // ════════════════════════════════════════════════════════════════
+
+  const iniciarEvaluacion = async (datos) => {
+    setEstudiante(datos);
+    setTiempoInicio(Date.now());
+    setRespuestas({});
+    setPreguntaActual(0);
+    setPantalla('evaluacion');
+    // Aquí se crearía el registro en Supabase
+  };
+
+  const guardarRespuesta = (preguntaId, respuesta) => {
+    setRespuestas(prev => ({
+      ...prev,
+      [preguntaId]: respuesta
+    }));
+  };
+
+  const irSiguiente = () => {
+    if (preguntaActual < preguntas.length - 1) {
+      setPreguntaActual(preguntaActual + 1);
+    }
+  };
+
+  const irAnterior = () => {
+    if (preguntaActual > 0) {
+      setPreguntaActual(preguntaActual - 1);
+    }
+  };
+
+  const finalizarEvaluacion = () => {
+    const duracion = Math.floor((Date.now() - tiempoInicio) / 1000 / 60);
+    
+    let totalPuntos = 0;
+    let correctas = 0;
+    const detalleRespuestas = [];
+
+    preguntas.forEach((pregunta, idx) => {
+      const respuestaUsuario = respuestas[pregunta.id];
+      let esCorrecta = false;
+
+      if (pregunta.tipo === 'multiple') {
+        const opcionSeleccionada = pregunta.opciones.find((_, i) => i === respuestaUsuario);
+        esCorrecta = opcionSeleccionada?.correcta || false;
+      } else if (pregunta.tipo === 'verdadero_falso') {
+        esCorrecta = respuestaUsuario === pregunta.respuesta_correcta;
+      } else if (pregunta.tipo === 'drag_drop') {
+        // Validar emparejamiento
+        const items = respuestaUsuario || {};
+        esCorrecta = pregunta.items.every(item => items[item.izq] === item.der);
+      }
+
+      if (esCorrecta) {
+        correctas++;
+        totalPuntos += pregunta.puntos;
+      }
+
+      detalleRespuestas.push({
+        numero: pregunta.numero,
+        tema: pregunta.tema,
+        tipo: pregunta.tipo,
+        enunciado: pregunta.enunciado,
+        respuestaUsuario: respuestaUsuario,
+        esCorrecta,
+        puntos: esCorrecta ? pregunta.puntos : 0,
+        puntosMaximos: pregunta.puntos
+      });
+    });
+
+    const porcentaje = (totalPuntos / preguntas.reduce((sum, p) => sum + p.puntos, 0)) * 100;
+
+    const resul = {
+      estudiante,
+      totalPuntos: parseFloat(totalPuntos.toFixed(2)),
+      correctas,
+      totalPreguntas: preguntas.length,
+      porcentaje: parseFloat(porcentaje.toFixed(2)),
+      duracion,
+      detalleRespuestas,
+      fecha: new Date()
+    };
+
+    setResultados(resul);
+    setPantalla('resultados');
+  };
+
+  const descargarPDF = () => {
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    
+    // Encabezado
+    doc.setFillColor(25, 28, 31);
+    doc.rect(0, 0, pageWidth, 35, 'F');
+    
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(20);
+    doc.text('BASES DE DATOS II', pageWidth / 2, 15, { align: 'center' });
+    doc.setFontSize(12);
+    doc.text('Evaluación Interactiva - UPDS', pageWidth / 2, 25, { align: 'center' });
+    
+    // Datos del estudiante
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(12);
+    doc.setFont(undefined, 'bold');
+    doc.text('DATOS DEL ESTUDIANTE', 15, 50);
+    
+    doc.setFont(undefined, 'normal');
+    doc.setFontSize(10);
+    doc.text(`Nombre: ${resultados.estudiante.nombre}`, 15, 60);
+    doc.text(`Email: ${resultados.estudiante.email}`, 15, 67);
+    doc.text(`Carrera: ${resultados.estudiante.carrera}`, 15, 74);
+    doc.text(`Fecha: ${resultados.fecha.toLocaleDateString('es-ES')}`, 15, 81);
+    doc.text(`Duración: ${resultados.duracion} minutos`, 15, 88);
+    
+    // Resumen de resultados
+    doc.setFont(undefined, 'bold');
+    doc.setFontSize(12);
+    doc.text('RESUMEN DE RESULTADOS', 15, 105);
+    
+    doc.setFont(undefined, 'normal');
+    doc.setFontSize(11);
+    
+    const colorScore = resultados.porcentaje >= 70 ? [34, 197, 94] : resultados.porcentaje >= 50 ? [249, 115, 22] : [239, 68, 68];
+    doc.setFillColor(...colorScore);
+    doc.rect(15, 115, 80, 30, 'F');
+    
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(28);
+    doc.setFont(undefined, 'bold');
+    doc.text(`${resultados.porcentaje.toFixed(1)}%`, 55, 137, { align: 'center' });
+    
+    doc.setTextColor(0, 0, 0);
+    doc.setFont(undefined, 'normal');
+    doc.setFontSize(10);
+    doc.text(`Preguntas Correctas: ${resultados.correctas}/${resultados.totalPreguntas}`, 15, 155);
+    doc.text(`Puntos Obtenidos: ${resultados.totalPuntos.toFixed(2)}`, 15, 162);
+    doc.text(`Estado: ${resultados.porcentaje >= 70 ? '✓ APROBADO' : resultados.porcentaje >= 50 ? '◐ EN RIESGO' : '✗ REPROBADO'}`, 15, 169);
+    
+    // Tabla de respuestas
+    const tableData = resultados.detalleRespuestas.map((resp, idx) => [
+      idx + 1,
+      resp.tema,
+      resp.tipo,
+      resp.esCorrecta ? '✓' : '✗',
+      `${resp.puntos}/${resp.puntosMaximos}`
+    ]);
+    
+    autoTable(doc, {
+      head: [['#', 'Tema', 'Tipo', 'Correcto', 'Puntos']],
+      body: tableData,
+      startY: 180,
+      theme: 'grid',
+      styles: { fontSize: 9, cellPadding: 3 },
+      headStyles: { fillColor: [25, 28, 31], textColor: [255, 255, 255] },
+      alternateRowStyles: { fillColor: [240, 240, 240] }
+    });
+    
+    // Pie de página
+    doc.setTextColor(100, 100, 100);
+    doc.setFontSize(8);
+    doc.text('Ing. M.Sc. Jimmy Nataniel Requena Llorentty - UPDS', pageWidth / 2, pageHeight - 10, { align: 'center' });
+    
+    doc.save(`Evaluacion_${resultados.estudiante.nombre.replace(/\s+/g, '_')}_${new Date().getTime()}.pdf`);
+  };
+
+  const reiniciar = () => {
+    setPantalla('inicio');
+    setEstudiante({ nombre: '', email: '', carrera: '' });
+    setRespuestas({});
+    setPreguntaActual(0);
+    setResultados(null);
+  };
+
+  // ════════════════════════════════════════════════════════════════
+  // COMPONENTES
+  // ════════════════════════════════════════════════════════════════
+
+  const PantallaInicio = () => (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white p-4 md:p-8">
+      {/* Fondo decorativo */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-20 left-10 w-72 h-72 bg-blue-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob"></div>
+        <div className="absolute -bottom-8 right-10 w-72 h-72 bg-purple-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-2000"></div>
+      </div>
+
+      <div className="relative max-w-2xl mx-auto">
+        {/* Header */}
+        <div className="text-center mb-12 pt-8">
+          <div className="flex items-center justify-center mb-6">
+            <BookOpen className="w-12 h-12 mr-3 text-blue-400" />
+            <h1 className="text-5xl font-black bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400">
+              BASES DE DATOS II
+            </h1>
+          </div>
+          <p className="text-xl text-slate-300 mb-2">Evaluación Interactiva</p>
+          <p className="text-sm text-slate-400">Vistas, Índices, Funciones, Triggers, Seguridad y más</p>
+        </div>
+
+        {/* Estadísticas rápidas */}
+        <div className="grid grid-cols-3 gap-4 mb-12">
+          <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4 text-center">
+            <BookOpen className="w-6 h-6 mx-auto mb-2 text-blue-400" />
+            <p className="text-2xl font-bold text-white">{preguntas.length}</p>
+            <p className="text-xs text-slate-300">Preguntas</p>
+          </div>
+          <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4 text-center">
+            <Clock className="w-6 h-6 mx-auto mb-2 text-green-400" />
+            <p className="text-2xl font-bold text-white">15-20</p>
+            <p className="text-xs text-slate-300">Minutos</p>
+          </div>
+          <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4 text-center">
+            <Target className="w-6 h-6 mx-auto mb-2 text-purple-400" />
+            <p className="text-2xl font-bold text-white">8</p>
+            <p className="text-xs text-slate-300">Puntos</p>
+          </div>
+        </div>
+
+        {/* Formulario */}
+        <div className="bg-white/10 backdrop-blur-md rounded-2xl p-8 border border-white/20">
+          <h2 className="text-2xl font-bold mb-6 text-center">Comenzar Evaluación</h2>
+          
+          <input
+            type="text"
+            placeholder="Tu nombre completo"
+            value={estudiante.nombre}
+            onChange={(e) => setEstudiante({...estudiante, nombre: e.target.value})}
+            className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg mb-4 text-white placeholder-slate-400 focus:outline-none focus:border-blue-400 focus:bg-white/20 transition"
+          />
+          
+          <input
+            type="email"
+            placeholder="Tu email"
+            value={estudiante.email}
+            onChange={(e) => setEstudiante({...estudiante, email: e.target.value})}
+            className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg mb-4 text-white placeholder-slate-400 focus:outline-none focus:border-blue-400 focus:bg-white/20 transition"
+          />
+          
+          <input
+            type="text"
+            placeholder="Tu carrera"
+            value={estudiante.carrera}
+            onChange={(e) => setEstudiante({...estudiante, carrera: e.target.value})}
+            className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg mb-6 text-white placeholder-slate-400 focus:outline-none focus:border-blue-400 focus:bg-white/20 transition"
+          />
+          
+          <button
+            onClick={() => {
+              if (estudiante.nombre && estudiante.email && estudiante.carrera) {
+                iniciarEvaluacion(estudiante);
+              }
+            }}
+            disabled={!estudiante.nombre || !estudiante.email || !estudiante.carrera}
+            className="w-full bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-3 rounded-lg flex items-center justify-center gap-2 transition transform hover:scale-105"
+          >
+            Comenzar Evaluación <ChevronRight className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Footer */}
+        <div className="text-center mt-8 text-slate-400 text-sm">
+          <p>Ing. M.Sc. Jimmy Nataniel Requena Llorentty</p>
+          <p>Universidad Privada Domingo Savio - UPDS</p>
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes blob {
+          0%, 100% { transform: translate(0, 0) scale(1); }
+          33% { transform: translate(30px, -50px) scale(1.1); }
+          66% { transform: translate(-20px, 20px) scale(0.9); }
+        }
+        .animate-blob { animation: blob 7s infinite; }
+        .animation-delay-2000 { animation-delay: 2s; }
+      `}</style>
+    </div>
+  );
+
+  const PantallaEvaluacion = () => {
+    const pregunta = preguntas[preguntaActual];
+    const respuestaActual = respuestas[pregunta.id];
+
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4 md:p-8">
+        <div className="max-w-4xl mx-auto">
+          {/* Header con progreso */}
+          <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
+            <div className="flex justify-between items-center mb-4">
+              <div className="flex items-center gap-3">
+                <Clock className="w-5 h-5 text-blue-500" />
+                <span className="text-sm font-semibold text-slate-600">
+                  Pregunta {preguntaActual + 1} de {preguntas.length}
+                </span>
+              </div>
+              <div className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-semibold">
+                {pregunta.tema}
+              </div>
+            </div>
+            
+            <div className="w-full bg-slate-200 rounded-full h-2">
+              <div 
+                className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full transition-all duration-300"
+                style={{width: `${((preguntaActual + 1) / preguntas.length) * 100}%`}}
+              ></div>
+            </div>
+          </div>
+
+          {/* Pregunta */}
+          <div className="bg-white rounded-xl shadow-lg p-8 mb-6">
+            <h2 className="text-2xl font-bold text-slate-900 mb-6">{pregunta.enunciado}</h2>
+
+            {/* Según el tipo de pregunta */}
+            {pregunta.tipo === 'multiple' && (
+              <div className="space-y-3">
+                {pregunta.opciones.map((opcion, idx) => (
+                  <label key={idx} className="flex items-start p-4 border-2 border-slate-200 rounded-lg cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition">
+                    <input
+                      type="radio"
+                      name={`pregunta-${pregunta.id}`}
+                      value={idx}
+                      checked={respuestaActual === idx}
+                      onChange={(e) => guardarRespuesta(pregunta.id, parseInt(e.target.value))}
+                      className="mt-1 mr-4"
+                    />
+                    <span className="text-slate-700 leading-relaxed">{opcion.texto}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+
+            {pregunta.tipo === 'verdadero_falso' && (
+              <div className="grid grid-cols-2 gap-4">
+                {[true, false].map((valor) => (
+                  <label key={valor} className="p-4 border-2 border-slate-200 rounded-lg cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition">
+                    <input
+                      type="radio"
+                      name={`pregunta-${pregunta.id}`}
+                      value={valor}
+                      checked={respuestaActual === valor}
+                      onChange={() => guardarRespuesta(pregunta.id, valor)}
+                      className="mr-3"
+                    />
+                    <span className={`font-bold ${valor ? 'text-green-600' : 'text-red-600'}`}>
+                      {valor ? 'VERDADERO' : 'FALSO'}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
+
+            {pregunta.tipo === 'drag_drop' && (
+              <DragDropQuestion pregunta={pregunta} respuesta={respuestaActual} onRespuesta={(r) => guardarRespuesta(pregunta.id, r)} />
+            )}
+          </div>
+
+          {/* Botones de navegación */}
+          <div className="flex justify-between gap-4">
+            <button
+              onClick={irAnterior}
+              disabled={preguntaActual === 0}
+              className="px-6 py-3 bg-slate-300 hover:bg-slate-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-900 font-semibold rounded-lg transition"
+            >
+              ← Anterior
+            </button>
+            
+            <button
+              onClick={preguntaActual === preguntas.length - 1 ? finalizarEvaluacion : irSiguiente}
+              className="px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white font-semibold rounded-lg transition flex items-center gap-2"
+            >
+              {preguntaActual === preguntas.length - 1 ? 'Finalizar' : 'Siguiente'} <ChevronRight className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const DragDropQuestion = ({ pregunta, respuesta = {}, onRespuesta }) => {
+    const [arrastrandoDesde, setArrastrandoDesde] = useState(null);
+
+    const handleDragStart = (e, item) => {
+      setArrastrandoDesde(item);
+      e.dataTransfer.effectAllowed = 'move';
+    };
+
+    const handleDragOver = (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+    };
+
+    const handleDrop = (e, item) => {
+      e.preventDefault();
+      if (arrastrandoDesde) {
+        onRespuesta({
+          ...respuesta,
+          [arrastrandoDesde.izq]: item.der
+        });
+        setArrastrandoDesde(null);
+      }
+    };
+
+    return (
+      <div className="grid grid-cols-2 gap-8">
+        {/* Columna izquierda */}
+        <div>
+          <h3 className="font-semibold text-slate-700 mb-4">Conceptos</h3>
+          <div className="space-y-3">
+            {pregunta.items.map((item, idx) => (
+              <div
+                key={idx}
+                draggable
+                onDragStart={(e) => handleDragStart(e, item)}
+                className="p-4 bg-blue-100 border-2 border-blue-400 rounded-lg cursor-move hover:shadow-lg transition text-blue-900 font-semibold"
+              >
+                {item.izq}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Columna derecha */}
+        <div>
+          <h3 className="font-semibold text-slate-700 mb-4">Definiciones</h3>
+          <div className="space-y-3">
+            {pregunta.items.map((item, idx) => (
+              <div
+                key={idx}
+                onDragOver={handleDragOver}
+                onDrop={(e) => handleDrop(e, item)}
+                className="p-4 bg-slate-100 border-2 border-dashed border-slate-400 rounded-lg min-h-20 flex items-center"
+              >
+                {respuesta[item.izq] ? (
+                  <div className="text-slate-700 font-semibold">{respuesta[item.izq]}</div>
+                ) : (
+                  <span className="text-slate-400 text-sm">Arrastra aquí...</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const PantallaResultados = () => {
+    const aprobado = resultados.porcentaje >= 70;
+    const enRiesgo = resultados.porcentaje >= 50 && resultados.porcentaje < 70;
+
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4 md:p-8">
+        <div className="max-w-4xl mx-auto">
+          {/* Card principal de resultados */}
+          <div className={`bg-white rounded-2xl shadow-2xl p-8 mb-6 border-t-4 ${aprobado ? 'border-green-500' : enRiesgo ? 'border-yellow-500' : 'border-red-500'}`}>
+            <div className="text-center mb-8">
+              {aprobado && <Award className="w-16 h-16 text-green-500 mx-auto mb-4" />}
+              {!aprobado && <X className="w-16 h-16 text-red-500 mx-auto mb-4" />}
+              
+              <h1 className="text-4xl font-black mb-2">
+                {aprobado ? '¡EXCELENTE!' : enRiesgo ? 'PUEDE MEJORAR' : 'NECESITA ESTUDIO'}
+              </h1>
+              <p className={`text-xl font-semibold ${aprobado ? 'text-green-600' : enRiesgo ? 'text-yellow-600' : 'text-red-600'}`}>
+                Calificación: {resultados.porcentaje.toFixed(1)}%
+              </p>
+            </div>
+
+            {/* Estadísticas */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+              <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-6 rounded-lg text-center">
+                <p className="text-3xl font-bold text-blue-600">{resultados.correctas}</p>
+                <p className="text-sm text-slate-600">Correctas</p>
+                <p className="text-xs text-slate-500">de {resultados.totalPreguntas}</p>
+              </div>
+              
+              <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-6 rounded-lg text-center">
+                <p className="text-3xl font-bold text-purple-600">{resultados.totalPuntos}</p>
+                <p className="text-sm text-slate-600">Puntos</p>
+                <p className="text-xs text-slate-500">máximo 8.00</p>
+              </div>
+              
+              <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 p-6 rounded-lg text-center">
+                <p className="text-3xl font-bold text-indigo-600">{resultados.duracion}</p>
+                <p className="text-sm text-slate-600">Minutos</p>
+                <p className="text-xs text-slate-500">de duración</p>
+              </div>
+              
+              <div className="bg-gradient-to-br from-slate-50 to-slate-100 p-6 rounded-lg text-center">
+                <p className="text-3xl font-bold text-slate-600">{resultados.totalPreguntas - resultados.correctas}</p>
+                <p className="text-sm text-slate-600">Incorrectas</p>
+                <p className="text-xs text-slate-500">a revisar</p>
+              </div>
+            </div>
+
+            {/* Retroalimentación */}
+            <div className={`p-4 rounded-lg mb-6 ${aprobado ? 'bg-green-50 border-l-4 border-green-500' : enRiesgo ? 'bg-yellow-50 border-l-4 border-yellow-500' : 'bg-red-50 border-l-4 border-red-500'}`}>
+              <p className={`font-semibold ${aprobado ? 'text-green-800' : enRiesgo ? 'text-yellow-800' : 'text-red-800'}`}>
+                {aprobado ? '✓ ¡Felicitaciones! Has demostrado un excelente dominio de los temas.' : enRiesgo ? '◐ Buen esfuerzo, pero hay áreas que necesitas reforzar.' : '✗ Necesitas estudiar más los conceptos fundamentales.'}
+              </p>
+            </div>
+          </div>
+
+          {/* Tabla de respuestas detalladas */}
+          <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
+            <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+              <BookOpen className="w-5 h-5 text-blue-500" />
+              Detalle de Respuestas
+            </h2>
+            
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-100 border-b-2 border-slate-300">
+                    <th className="px-4 py-3 text-left">#</th>
+                    <th className="px-4 py-3 text-left">Tema</th>
+                    <th className="px-4 py-3 text-left">Tipo</th>
+                    <th className="px-4 py-3 text-center">Estado</th>
+                    <th className="px-4 py-3 text-right">Puntos</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {resultados.detalleRespuestas.map((resp, idx) => (
+                    <tr key={idx} className={`border-b ${resp.esCorrecta ? 'bg-green-50' : 'bg-red-50'}`}>
+                      <td className="px-4 py-3 font-semibold text-slate-600">{idx + 1}</td>
+                      <td className="px-4 py-3 text-slate-700">{resp.tema}</td>
+                      <td className="px-4 py-3 text-slate-600 capitalize">{resp.tipo.replace('_', ' ')}</td>
+                      <td className="px-4 py-3 text-center">
+                        {resp.esCorrecta ? (
+                          <Check className="w-5 h-5 text-green-600 mx-auto" />
+                        ) : (
+                          <X className="w-5 h-5 text-red-600 mx-auto" />
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right font-semibold">
+                        {resp.puntos}/{resp.puntosMaximos}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Botones de acción */}
+          <div className="flex gap-4 justify-center">
+            <button
+              onClick={descargarPDF}
+              className="flex items-center gap-2 px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-lg transition"
+            >
+              <Download className="w-5 h-5" /> Descargar PDF
+            </button>
+            
+            <button
+              onClick={reiniciar}
+              className="flex items-center gap-2 px-6 py-3 bg-slate-500 hover:bg-slate-600 text-white font-semibold rounded-lg transition"
+            >
+              <RefreshCw className="w-5 h-5" /> Nueva Evaluación
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ════════════════════════════════════════════════════════════════
+  // RENDER FINAL
+  // ════════════════════════════════════════════════════════════════
+
+  if (cargando) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 to-slate-800">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-blue-500 border-t-purple-500 rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-white text-lg">Cargando evaluación...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {pantalla === 'inicio' && <PantallaInicio />}
+      {pantalla === 'evaluacion' && <PantallaEvaluacion />}
+      {pantalla === 'resultados' && <PantallaResultados />}
+    </>
+  );
+};
+
+export default EvaluacionBasesII;

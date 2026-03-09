@@ -1,0 +1,558 @@
+import React, { useState, useEffect } from 'react';
+import { createClient } from '@supabase/supabase-js';
+import jsPDF from 'jspdf';
+
+const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
+const supabaseKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+export default function EvaluacionBasesII() {
+  const [pantalla, setPantalla] = useState('inicio');
+  const [estudiante, setEstudiante] = useState({ nombre: '', email: '', carrera: '' });
+  const [respuestas, setRespuestas] = useState({});
+  const [puntuacion, setPuntuacion] = useState(null);
+  const [preguntaActual, setPreguntaActual] = useState(0);
+  const [preguntas, setPreguntas] = useState([]);
+  const [cargando, setCargando] = useState(true);
+  const [tiempoRestante, setTiempoRestante] = useState(3600);
+  const [tiempoInicio, setTiempoInicio] = useState(null);
+  const [evaluacionRealizada, setEvaluacionRealizada] = useState(false);
+
+  useEffect(() => {
+    cargarPreguntas();
+  }, []);
+
+  useEffect(() => {
+    if (pantalla === 'evaluacion' && tiempoInicio) {
+      const interval = setInterval(() => {
+        const ahora = new Date();
+        const diff = 3600000 - (ahora - tiempoInicio);
+        if (diff <= 0) {
+          finalizar();
+          clearInterval(interval);
+        } else {
+          setTiempoRestante(Math.floor(diff / 1000));
+        }
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [pantalla, tiempoInicio]);
+
+  const cargarPreguntas = async () => {
+    try {
+      const { data } = await supabase.from('banco_preguntas').select('*').eq('activa', true);
+      if (data && data.length > 0) {
+        const mezcladas = data.sort(() => Math.random() - 0.5).slice(0, 20);
+        setPreguntas(mezcladas);
+      }
+    } catch (error) {
+      console.error('Error:', error);
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  const iniciar = () => {
+    if (estudiante.nombre.trim() && estudiante.email.trim()) {
+      setTiempoInicio(new Date());
+      setTiempoRestante(3600);
+      setRespuestas({});
+      setPreguntaActual(0);
+      setPantalla('evaluacion');
+    } else {
+      alert('Completa nombre y email');
+    }
+  };
+
+  const guardarRespuesta = (valor) => {
+    setRespuestas({ ...respuestas, [preguntaActual]: valor });
+  };
+
+  const siguiente = () => {
+    if (preguntaActual < preguntas.length - 1) {
+      setPreguntaActual(preguntaActual + 1);
+    } else {
+      finalizar();
+    }
+  };
+
+  const anterior = () => {
+    if (preguntaActual > 0) {
+      setPreguntaActual(preguntaActual - 1);
+    }
+  };
+
+  const finalizar = async () => {
+    let puntos = 0;
+    preguntas.forEach((p, i) => {
+      if (respuestas[i] !== undefined) puntos += 1;
+    });
+
+    setPuntuacion(puntos);
+    setEvaluacionRealizada(true);
+    setPantalla('resultados');
+
+    try {
+      await supabase.from('evaluaciones').insert({
+        email_estudiante: estudiante.email,
+        nombre_estudiante: estudiante.nombre,
+        carrera: estudiante.carrera || 'No especificada',
+        puntuacion: puntos,
+        total_preguntas: preguntas.length,
+        aprobado: puntos >= 14,
+        fecha_evaluacion: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('Error:', error);
+    }
+  };
+
+  const descargarPDF = () => {
+    const doc = new jsPDF();
+    doc.setFontSize(18);
+    doc.text('EVALUACIÓN - BASES DE DATOS II', 105, 15, { align: 'center' });
+    doc.setFontSize(10);
+    doc.text(`Estudiante: ${estudiante.nombre}`, 20, 30);
+    doc.text(`Email: ${estudiante.email}`, 20, 38);
+    doc.text(`Carrera: ${estudiante.carrera}`, 20, 46);
+    doc.text(`Fecha: ${new Date().toLocaleDateString('es-ES')}`, 20, 54);
+    const porciento = ((puntuacion / preguntas.length) * 100).toFixed(1);
+    const estado = puntuacion >= 14 ? 'APROBADO' : 'REPROBADO';
+    doc.text(`Puntuación: ${puntuacion}/${preguntas.length} (${porciento}%) - ${estado}`, 20, 62);
+    doc.save(`Evaluacion_${estudiante.nombre}.pdf`);
+  };
+
+  const mins = Math.floor(tiempoRestante / 60);
+  const secs = tiempoRestante % 60;
+  const tiempoFormato = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+
+  const containerStyle = {
+    minHeight: '100vh',
+    background: '#f5f5f5',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontFamily: 'Arial, sans-serif',
+    padding: '40px 20px'
+  };
+
+  const cardStyle = {
+    width: '100%',
+    maxWidth: '600px',
+    background: 'white',
+    borderRadius: '8px',
+    boxShadow: '0 2px 15px rgba(0,0,0,0.1)',
+    padding: '50px 40px'
+  };
+
+  // PANTALLA INICIO
+  if (pantalla === 'inicio') {
+    return (
+      <div style={containerStyle}>
+        <div style={cardStyle}>
+          <h1 style={{ fontSize: '36px', fontWeight: 'bold', color: '#333', textAlign: 'center', marginBottom: '10px' }}>
+            Bases de Datos II
+          </h1>
+          <p style={{ fontSize: '15px', color: '#777', textAlign: 'center', marginBottom: '50px' }}>
+            UPDS 2024 - Evaluación Interactiva
+          </p>
+
+          <div style={{
+            background: '#f0f7ff',
+            border: '2px solid #cce5ff',
+            borderRadius: '8px',
+            padding: '25px',
+            marginBottom: '40px',
+            fontSize: '14px',
+            lineHeight: '1.9',
+            color: '#333'
+          }}>
+            <p style={{ fontWeight: 'bold', fontSize: '15px', marginBottom: '15px' }}>📋 Información:</p>
+            <p>⏱️ <strong>Duración:</strong> 60 minutos</p>
+            <p>📊 <strong>Preguntas:</strong> 20 (aleatorias)</p>
+            <p>✓ <strong>Nota mínima:</strong> 14 puntos (70%)</p>
+            <p>⚠️ <strong>Intentos:</strong> Solo 1</p>
+          </div>
+
+          {cargando ? (
+            <p style={{ textAlign: 'center', color: '#999', marginBottom: '20px' }}>Cargando preguntas...</p>
+          ) : (
+            <>
+              <input
+                type="text"
+                placeholder="Tu nombre"
+                value={estudiante.nombre}
+                onChange={(e) => setEstudiante({ ...estudiante, nombre: e.target.value })}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  border: '1px solid #ddd',
+                  borderRadius: '5px',
+                  fontSize: '14px',
+                  marginBottom: '12px',
+                  boxSizing: 'border-box'
+                }}
+              />
+              <input
+                type="email"
+                placeholder="Tu email"
+                value={estudiante.email}
+                onChange={(e) => setEstudiante({ ...estudiante, email: e.target.value })}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  border: '1px solid #ddd',
+                  borderRadius: '5px',
+                  fontSize: '14px',
+                  marginBottom: '12px',
+                  boxSizing: 'border-box'
+                }}
+              />
+              <input
+                type="text"
+                placeholder="Tu carrera (opcional)"
+                value={estudiante.carrera}
+                onChange={(e) => setEstudiante({ ...estudiante, carrera: e.target.value })}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  border: '1px solid #ddd',
+                  borderRadius: '5px',
+                  fontSize: '14px',
+                  marginBottom: '20px',
+                  boxSizing: 'border-box'
+                }}
+              />
+
+              <button
+                onClick={iniciar}
+                disabled={!estudiante.nombre.trim() || !estudiante.email.trim() || evaluacionRealizada}
+                style={{
+                  width: '100%',
+                  padding: '14px',
+                  background: evaluacionRealizada ? '#ccc' : '#0066cc',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '5px',
+                  fontSize: '16px',
+                  fontWeight: 'bold',
+                  cursor: !estudiante.nombre.trim() || !estudiante.email.trim() || evaluacionRealizada ? 'not-allowed' : 'pointer',
+                  opacity: !estudiante.nombre.trim() || !estudiante.email.trim() || evaluacionRealizada ? 0.6 : 1
+                }}
+              >
+                {evaluacionRealizada ? 'Ya completaste' : 'Comenzar Examen'}
+              </button>
+            </>
+          )}
+
+          {evaluacionRealizada && (
+            <p style={{ color: '#d32f2f', fontSize: '12px', textAlign: 'center', marginTop: '15px' }}>
+              ⚠️ Solo se permite una evaluación
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // PANTALLA EVALUACIÓN
+  if (pantalla === 'evaluacion' && preguntas.length > 0) {
+    const pregunta = preguntas[preguntaActual];
+    const progreso = ((preguntaActual + 1) / preguntas.length) * 100;
+
+    return (
+      <div style={{ minHeight: '100vh', background: '#f5f5f5', padding: '40px 20px', fontFamily: 'Arial, sans-serif' }}>
+        <div style={{ maxWidth: '800px', margin: '0 auto' }}>
+          <div style={{
+            background: 'white',
+            padding: '25px',
+            borderRadius: '8px',
+            marginBottom: '25px',
+            boxShadow: '0 2px 10px rgba(0,0,0,0.1)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+              <h2 style={{ fontSize: '18px', fontWeight: 'bold', color: '#333', margin: '0' }}>
+                Pregunta {preguntaActual + 1} de {preguntas.length}
+              </h2>
+              <div style={{
+                fontSize: '18px',
+                fontWeight: 'bold',
+                color: tiempoRestante <= 300 ? '#d32f2f' : '#0066cc'
+              }}>
+                ⏱️ {tiempoFormato}
+              </div>
+            </div>
+            <div style={{
+              width: '100%',
+              height: '6px',
+              background: '#e0e0e0',
+              borderRadius: '3px',
+              overflow: 'hidden'
+            }}>
+              <div style={{
+                height: '100%',
+                width: `${progreso}%`,
+                background: '#0066cc',
+                transition: 'width 0.3s'
+              }} />
+            </div>
+          </div>
+
+          <div style={{
+            background: 'white',
+            padding: '40px',
+            borderRadius: '8px',
+            marginBottom: '25px',
+            boxShadow: '0 2px 10px rgba(0,0,0,0.1)'
+          }}>
+            <h3 style={{
+              fontSize: '17px',
+              fontWeight: 'bold',
+              color: '#333',
+              marginBottom: '25px',
+              lineHeight: '1.6'
+            }}>
+              {pregunta.enunciado}
+            </h3>
+
+            {pregunta.tipo === 'multiple' && pregunta.opciones && (
+              <div>
+                {pregunta.opciones.map((opcion, idx) => (
+                  <div
+                    key={idx}
+                    onClick={() => guardarRespuesta(idx)}
+                    style={{
+                      padding: '14px',
+                      marginBottom: '12px',
+                      border: respuestas[preguntaActual] === idx ? '2px solid #0066cc' : '1px solid #ddd',
+                      borderRadius: '5px',
+                      background: respuestas[preguntaActual] === idx ? '#f0f7ff' : '#fafafa',
+                      cursor: 'pointer',
+                      fontSize: '14px',
+                      color: '#333'
+                    }}
+                  >
+                    <input type="radio" checked={respuestas[preguntaActual] === idx} readOnly style={{ marginRight: '10px' }} />
+                    {opcion.texto_opcion}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {pregunta.tipo === 'verdadero_falso' && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                <div
+                  onClick={() => guardarRespuesta(true)}
+                  style={{
+                    padding: '20px',
+                    border: respuestas[preguntaActual] === true ? '2px solid #22c55e' : '1px solid #ddd',
+                    borderRadius: '5px',
+                    background: respuestas[preguntaActual] === true ? '#f0fdf4' : '#fafafa',
+                    cursor: 'pointer',
+                    textAlign: 'center',
+                    fontWeight: 'bold',
+                    fontSize: '15px',
+                    color: respuestas[preguntaActual] === true ? '#22c55e' : '#333'
+                  }}
+                >
+                  ✓ Verdadero
+                </div>
+                <div
+                  onClick={() => guardarRespuesta(false)}
+                  style={{
+                    padding: '20px',
+                    border: respuestas[preguntaActual] === false ? '2px solid #ff4444' : '1px solid #ddd',
+                    borderRadius: '5px',
+                    background: respuestas[preguntaActual] === false ? '#fff5f5' : '#fafafa',
+                    cursor: 'pointer',
+                    textAlign: 'center',
+                    fontWeight: 'bold',
+                    fontSize: '15px',
+                    color: respuestas[preguntaActual] === false ? '#ff4444' : '#333'
+                  }}
+                >
+                  ✗ Falso
+                </div>
+              </div>
+            )}
+
+            {pregunta.tipo === 'drag_drop' && pregunta.drag_drop_items && (
+              <div>
+                <p style={{ color: '#666', fontSize: '13px', marginBottom: '15px' }}>Haz clic para emparejar:</p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                  <div>
+                    <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#999', marginBottom: '10px' }}>CONCEPTO</p>
+                    {pregunta.drag_drop_items.map((item, idx) => (
+                      <div
+                        key={idx}
+                        onClick={() => guardarRespuesta(item.item_izquierdo)}
+                        style={{
+                          padding: '10px',
+                          marginBottom: '8px',
+                          border: respuestas[preguntaActual] === item.item_izquierdo ? '2px solid #0066cc' : '1px solid #ddd',
+                          borderRadius: '5px',
+                          background: respuestas[preguntaActual] === item.item_izquierdo ? '#f0f7ff' : '#fafafa',
+                          cursor: 'pointer',
+                          fontSize: '13px',
+                          fontWeight: 'bold',
+                          color: '#333'
+                        }}
+                      >
+                        {item.item_izquierdo}
+                      </div>
+                    ))}
+                  </div>
+                  <div>
+                    <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#999', marginBottom: '10px' }}>DEFINICIÓN</p>
+                    {pregunta.drag_drop_items.map((item, idx) => (
+                      <div
+                        key={idx}
+                        style={{
+                          padding: '10px',
+                          marginBottom: '8px',
+                          border: '1px solid #ddd',
+                          borderRadius: '5px',
+                          background: '#f5f5f5',
+                          fontSize: '13px',
+                          color: '#333'
+                        }}
+                      >
+                        {item.item_derecho}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+            <button
+              onClick={anterior}
+              disabled={preguntaActual === 0}
+              style={{
+                padding: '12px',
+                border: '1px solid #ddd',
+                background: preguntaActual === 0 ? '#f5f5f5' : 'white',
+                borderRadius: '5px',
+                cursor: preguntaActual === 0 ? 'not-allowed' : 'pointer',
+                fontSize: '15px',
+                fontWeight: 'bold',
+                color: preguntaActual === 0 ? '#999' : '#333',
+                opacity: preguntaActual === 0 ? 0.5 : 1
+              }}
+            >
+              ← Anterior
+            </button>
+            <button
+              onClick={siguiente}
+              style={{
+                padding: '12px',
+                background: '#0066cc',
+                color: 'white',
+                border: 'none',
+                borderRadius: '5px',
+                cursor: 'pointer',
+                fontSize: '15px',
+                fontWeight: 'bold'
+              }}
+            >
+              {preguntaActual === preguntas.length - 1 ? 'Finalizar' : 'Siguiente'} →
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // PANTALLA RESULTADOS
+  if (pantalla === 'resultados') {
+    const porciento = ((puntuacion / preguntas.length) * 100).toFixed(1);
+    const aprobado = puntuacion >= 14;
+
+    return (
+      <div style={containerStyle}>
+        <div style={{ ...cardStyle, maxWidth: '500px' }}>
+          <div style={{
+            background: aprobado ? '#22c55e' : '#ff4444',
+            color: 'white',
+            padding: '40px',
+            textAlign: 'center',
+            marginBottom: '0',
+            borderRadius: '8px 8px 0 0',
+            marginLeft: '-40px',
+            marginRight: '-40px',
+            marginTop: '-50px'
+          }}>
+            <div style={{ fontSize: '60px', marginBottom: '15px' }}>
+              {aprobado ? '✓' : '✗'}
+            </div>
+            <h1 style={{ fontSize: '28px', fontWeight: 'bold', margin: '0 0 10px 0' }}>
+              {aprobado ? '¡Felicidades!' : 'No aprobaste'}
+            </h1>
+            <p style={{ margin: '0', fontSize: '15px' }}>
+              {aprobado ? 'Excelente desempeño' : `Necesitabas 14 puntos`}
+            </p>
+          </div>
+
+          <div style={{ paddingTop: '40px' }}>
+            <div style={{ fontSize: '55px', fontWeight: 'bold', color: '#333', textAlign: 'center', marginBottom: '15px' }}>
+              {puntuacion}/{preguntas.length}
+            </div>
+            <div style={{
+              display: 'inline-block',
+              width: '100%',
+              textAlign: 'center',
+              padding: '10px',
+              background: aprobado ? '#e6f5ea' : '#fde4e4',
+              color: aprobado ? '#166534' : '#b91c1c',
+              borderRadius: '5px',
+              fontWeight: 'bold',
+              fontSize: '16px',
+              marginBottom: '30px'
+            }}>
+              {porciento}%
+            </div>
+
+            <div style={{
+              background: '#f5f5f5',
+              padding: '20px',
+              borderRadius: '5px',
+              marginBottom: '25px',
+              fontSize: '13px',
+              lineHeight: '1.9',
+              color: '#555'
+            }}>
+              <p><strong>Estudiante:</strong> {estudiante.nombre}</p>
+              <p><strong>Email:</strong> {estudiante.email}</p>
+              <p style={{ marginBottom: '0' }}><strong>Fecha:</strong> {new Date().toLocaleDateString('es-ES')}</p>
+            </div>
+
+            <button
+              onClick={descargarPDF}
+              style={{
+                width: '100%',
+                padding: '14px',
+                background: '#0066cc',
+                color: 'white',
+                border: 'none',
+                borderRadius: '5px',
+                cursor: 'pointer',
+                fontWeight: 'bold',
+                fontSize: '15px'
+              }}
+            >
+              📥 Descargar PDF
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={containerStyle}>
+      <p style={{ color: '#999' }}>Cargando...</p>
+    </div>
+  );
+}
